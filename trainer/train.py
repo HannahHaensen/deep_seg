@@ -1,33 +1,40 @@
 import datetime
+import math
 import time
 
 import torch
 import torchvision
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms, utils
 
 from dataset.voc_dataset import VOCSegmentation
 from dataset.basic_dataset import DataSplit, SensorTypes
-from trainer.metric_logger import SmoothedValue, MetricLogger
+from trainer.metric_logger import SmoothedValue, MetricLogger, ConfusionMatrix
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 # functions to show an image
+# default `log_dir` is "runs" - we'll be more specific her
 
-
-def imshow(img):
+# helper function to show an image
+# (used in the `plot_classes_preds` function below)
+def matplotlib_imshow(img, one_channel=False):
+    if one_channel:
+        img = img.mean(dim=0)
     img = img / 2 + 0.5     # unnormalize
     npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))
-    plt.show()
+    if one_channel:
+        plt.imshow(npimg, cmap="Greys")
+        plt.show()
+    else:
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))
+        plt.show()
 
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device:', device)
     print()
 
-    data_loader, data_loader_eval = loadingDataSet(root='/Users/hannahschieber/GitHub/deep_seg/data')
+    data_loader, data_loader_eval = loading_data_set(root='/Users/hannahschieber/GitHub/deep_seg/data')
 
     print("Creating model")
     model = torchvision.models.segmentation.deeplabv3_resnet50(pretrained=False, num_classes=21)
@@ -45,8 +52,15 @@ def main():
     for epoch in range(0, 10):
         # if args.distributed:
         #    train_sampler.set_epoch(epoch)
+        dataiter = iter(data_loader)
+        images, labels = dataiter.next()
+        img_grid = torchvision.utils.make_grid(images[SensorTypes.Camera])
+
+        matplotlib_imshow(img_grid, one_channel=True)
+
         train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
                         device=device, epoch=epoch, print_freq=5, lr_scheduler=lr_scheduler)
+
         lr_scheduler.step()
         # if args.output_dir:
         #    utils.save_on_master({
@@ -58,14 +72,15 @@ def main():
         #        os.path.join(args.output_dir, 'model_{}.pth'.format(epoch)))
 
         # evaluate after every epoch
-        evaluate(model, data_loader_eval, device=device)
+        evaluate(model=model, data_loader=data_loader_eval, device=device, num_classes=21)
 
+    tb.close()
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 
 
-def loadingDataSet(root: str = None):
+def loading_data_set(root: str = None):
     # Data loading code
     print("Loading data")
     train_dataset = VOCSegmentation(split=DataSplit.Train, root=root)
@@ -87,11 +102,12 @@ def loadingDataSet(root: str = None):
 
 def evaluate(model, data_loader, device, num_classes):
     model.eval()
-    confmat = utils.ConfusionMatrix(num_classes)
-    metric_logger = utils.MetricLogger(delimiter="  ")
+    confmat = ConfusionMatrix(num_classes)
+    metric_logger = MetricLogger(delimiter="  ")
     header = 'Test:'
     with torch.no_grad():
-        for image, target in metric_logger.log_every(data_loader, 100, header):
+        for sensor, target in metric_logger.log_every(data_loader, 100, header):
+            image = sensor[SensorTypes.Camera]
             image, target = image.to(device), target.to(device)
             output = model(image)
             output = output['out']
@@ -110,6 +126,9 @@ def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, 
     metric_logger = MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
     header = 'Epoch: [{}]'.format(epoch)
+
+    # default `log_dir` is "runs" - we'll be more specific here
+
     for sensor, target in metric_logger.log_every(data_loader, print_freq, header):
         image = sensor[SensorTypes.Camera]
         image, target = image.to(device), target.to(device)
@@ -123,6 +142,9 @@ def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, 
         lr_scheduler.step()
 
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
+
+        # writer.add_scalar('sin', math.sin(angle_rad), step)
+
 
 
 if __name__ == "__main__":
