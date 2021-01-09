@@ -1,26 +1,27 @@
 import datetime
-import math
+
 import time
 
 import torch
 import torchvision
+from torch.utils.tensorboard import SummaryWriter
 
 from dataset.voc_dataset import VOCSegmentation
 from dataset.basic_dataset import DataSplit, SensorTypes
+
 from trainer.metric_logger import SmoothedValue, MetricLogger, ConfusionMatrix
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-# functions to show an image
-# default `log_dir` is "runs" - we'll be more specific her
+writer = SummaryWriter()  # Saves the summaries to default directory names 'runs' in the current parent directory
 
 # helper function to show an image
 # (used in the `plot_classes_preds` function below)
 def matplotlib_imshow(img, one_channel=False):
     if one_channel:
         img = img.mean(dim=0)
-    img = img / 2 + 0.5     # unnormalize
+    img = img / 2 + 0.5  # unnormalize
     npimg = img.numpy()
     if one_channel:
         plt.imshow(npimg, cmap="Greys")
@@ -28,6 +29,7 @@ def matplotlib_imshow(img, one_channel=False):
     else:
         plt.imshow(np.transpose(npimg, (1, 2, 0)))
         plt.show()
+
 
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -50,31 +52,14 @@ def main():
     print("Start training")
     start_time = time.time()
     for epoch in range(0, 10):
-        # if args.distributed:
-        #    train_sampler.set_epoch(epoch)
-        dataiter = iter(data_loader)
-        images, labels = dataiter.next()
-        img_grid = torchvision.utils.make_grid(images[SensorTypes.Camera])
-
-        matplotlib_imshow(img_grid, one_channel=True)
-
         train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
                         device=device, epoch=epoch, print_freq=5, lr_scheduler=lr_scheduler)
 
         lr_scheduler.step()
-        # if args.output_dir:
-        #    utils.save_on_master({
-        #        'model': model_without_ddp.state_dict(),
-        #        'optimizer': optimizer.state_dict(),
-        #        'lr_scheduler': lr_scheduler.state_dict(),
-        #        'args': args,
-        #        'epoch': epoch},
-        #        os.path.join(args.output_dir, 'model_{}.pth'.format(epoch)))
 
         # evaluate after every epoch
         evaluate(model=model, data_loader=data_loader_eval, device=device, num_classes=21)
 
-    tb.close()
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
@@ -82,10 +67,8 @@ def main():
 
 def loading_data_set(root: str = None):
     # Data loading code
-    print("Loading data")
     train_dataset = VOCSegmentation(split=DataSplit.Train, root=root)
     eval_dataset = VOCSegmentation(split=DataSplit.Eval, root=root)
-    print("Creating data loaders")
     print('Loading data...')
     data_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -120,7 +103,6 @@ def evaluate(model, data_loader, device, num_classes):
 
 
 def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, print_freq):
-
     criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
     model.train()
     metric_logger = MetricLogger(delimiter="  ")
@@ -135,6 +117,10 @@ def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, 
         output = model(image)
         loss = criterion(output['out'], target.long())
 
+        # Compute accuracy
+        _, argmax = torch.max(output['out'], 1)
+        accuracy = (target == argmax.squeeze()).float().mean()
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -143,9 +129,28 @@ def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, 
 
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
 
-        # writer.add_scalar('sin', math.sin(angle_rad), step)
+        print('Step [{}/{}], Loss: {:.4f}, Acc: {:.2f}'
+              .format(epoch + 1, 10, loss.item(), accuracy.item()))
+
+        # ================================================================== #
+        #                        Tensorboard Logging                         #
+        # ================================================================== #
+
+        # 1. Log scalar values (scalar summary)
+        info = {'loss': loss.item(), 'accuracy': accuracy.item()}
+
+        for tag, value in info.items():
+            writer.add_scalar(tag, value, epoch + 1)
+
+        # 2. Log values and gradients of the parameters (histogram summary)
+        for tag, value in model.named_parameters():
+            tag = tag.replace('.', '/')
+            writer.add_histogram(tag, value.data.cpu().numpy(), epoch + 1)
+            writer.add_histogram(tag + '/grad', value.grad.data.cpu().numpy(), epoch + 1)
+        writer.flush()
 
 
 
 if __name__ == "__main__":
     main()
+    writer.close()
