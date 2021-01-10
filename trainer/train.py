@@ -4,17 +4,32 @@ import time
 
 import torch
 import torchvision
-from torch.utils.tensorboard import SummaryWriter
 
 from dataset.voc_dataset import VOCSegmentation
 from dataset.basic_dataset import DataSplit, SensorTypes
+from logger.tensorboard_logging import TensorboardLogger
+from metrics.intersection_over_union import IoU
 
 from trainer.metric_logger import SmoothedValue, MetricLogger, ConfusionMatrix
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-writer = SummaryWriter()  # Saves the summaries to default directory names 'runs' in the current parent directory
+def save_checkpoint(model, optimizer, save_path, epoch):
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'epoch': epoch
+    }, save_path)
+
+
+def load_checkpoint(model, optimizer, load_path):
+    checkpoint = torch.load(load_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+
+    return model, optimizer, epoch
 
 # helper function to show an image
 # (used in the `plot_classes_preds` function below)
@@ -31,7 +46,7 @@ def matplotlib_imshow(img, one_channel=False):
         plt.show()
 
 
-def main():
+def main(writer: TensorboardLogger):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device:', device)
     print()
@@ -51,14 +66,21 @@ def main():
 
     print("Start training")
     start_time = time.time()
-    for epoch in range(0, 10):
-        train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
-                        device=device, epoch=epoch, print_freq=5, lr_scheduler=lr_scheduler)
 
+    for epoch in range(0, 10):
+        loss, accuracy = train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
+                        device=device, epoch=epoch, print_freq=5, lr_scheduler=lr_scheduler,
+                                         writer=writer)
+
+        # 1. Log scalar values (scalar summary)
+        info = {'loss': loss, 'accuracy': accuracy}
+        writer.log_scalars(info, epoch)
         lr_scheduler.step()
 
         # evaluate after every epoch
-        evaluate(model=model, data_loader=data_loader_eval, device=device, num_classes=21)
+        confmat = evaluate(model=model, data_loader=data_loader_eval,
+                 device=device, num_classes=21, writer=writer, epoch=epoch)
+        print(confmat)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -83,7 +105,7 @@ def loading_data_set(root: str = None):
     return data_loader, data_loader_eval
 
 
-def evaluate(model, data_loader, device, num_classes):
+def evaluate(model, data_loader, device, num_classes, writer, epoch):
     model.eval()
     confmat = ConfusionMatrix(num_classes)
     metric_logger = MetricLogger(delimiter="  ")
@@ -95,14 +117,19 @@ def evaluate(model, data_loader, device, num_classes):
             output = model(image)
             output = output['out']
 
+            # writer.log_image(tag="prediction", value=output)
+            # writer.log_image(tag="target", value=target)
+
             confmat.update(target.flatten(), output.argmax(1).flatten())
 
         confmat.reduce_from_all_processes()
+        info = {'mIoU': 1}
+        writer.log_scalars(info, epoch)
 
     return confmat
 
 
-def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, print_freq):
+def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, print_freq, writer):
     criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
     model.train()
     metric_logger = MetricLogger(delimiter="  ")
@@ -110,17 +137,28 @@ def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, 
     header = 'Epoch: [{}]'.format(epoch)
 
     # default `log_dir` is "runs" - we'll be more specific here
+    losses = 0
+    accuracy = 0
 
     for sensor, target in metric_logger.log_every(data_loader, print_freq, header):
         image = sensor[SensorTypes.Camera]
         image, target = image.to(device), target.to(device)
         output = model(image)
+
+        # writer.log_image(tag="prediction", value=output['out'])
+        # writer.log_image(tag="target", value=target)
+
         loss = criterion(output['out'], target.long())
+        losses += loss.item()
 
         # Compute accuracy
         _, argmax = torch.max(output['out'], 1)
         accuracy = (target == argmax.squeeze()).float().mean()
 
+        # 1. Log scalar values (scalar summary)
+        info = {'loss': loss, 'accuracy': accuracy, 'mIoU': 1}
+        writer.log_scalars(info, epoch
+                           )
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -129,28 +167,15 @@ def train_one_epoch(model, optimizer, data_loader, lr_scheduler, device, epoch, 
 
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
 
-        print('Step [{}/{}], Loss: {:.4f}, Acc: {:.2f}'
-              .format(epoch + 1, 10, loss.item(), accuracy.item()))
+    return losses, accuracy
 
-        # ================================================================== #
-        #                        Tensorboard Logging                         #
-        # ================================================================== #
 
-        # 1. Log scalar values (scalar summary)
-        info = {'loss': loss.item(), 'accuracy': accuracy.item()}
-
-        for tag, value in info.items():
-            writer.add_scalar(tag, value, epoch + 1)
-
-        # 2. Log values and gradients of the parameters (histogram summary)
-        for tag, value in model.named_parameters():
-            tag = tag.replace('.', '/')
-            writer.add_histogram(tag, value.data.cpu().numpy(), epoch + 1)
-            writer.add_histogram(tag + '/grad', value.grad.data.cpu().numpy(), epoch + 1)
-        writer.flush()
 
 
 
 if __name__ == "__main__":
-    main()
-    writer.close()
+    writer = TensorboardLogger(log_dir='../runs/tensorboard_logger')
+    # Saves the summaries to default directory names 'runs' in the current parent directory
+
+    main(writer)
+
