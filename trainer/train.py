@@ -2,6 +2,7 @@ import datetime
 import time
 from datetime import datetime
 
+import numpy as np
 import torch
 import torchvision
 
@@ -11,6 +12,7 @@ from logger.metric_logger import MetricCalculator
 from logger.tensorboard_logger import TensorboardLogger
 
 from tqdm import tqdm
+
 
 class Trainer:
     def __init__(self, image_dir: str,
@@ -58,7 +60,7 @@ class Trainer:
         print('Done...')
         return data_loader, data_loader_eval
 
-    def main(self):
+    def main(self, num_classes=21):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print('Using device:', device)
         print()
@@ -79,27 +81,34 @@ class Trainer:
         print("Start training")
         start_time = time.time()
 
+        criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
+
         for epoch in range(0, 10):
             self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
-                                                  device=device, epoch=epoch, print_freq=5, lr_scheduler=lr_scheduler)
+                                 num_classes=num_classes, device=device, epoch=epoch,
+                                 lr_scheduler=lr_scheduler, criterion=criterion)
 
             lr_scheduler.step()
 
             # evaluate after every epoch
             self.evaluate(model=model, data_loader=data_loader_eval,
-                          device=device, num_classes=21, epoch=epoch)
+                          device=device, num_classes=21, epoch=epoch, criterion=criterion)
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print('Training time {}'.format(total_time_str))
 
-    def evaluate(self, model, data_loader, device, num_classes, epoch):
+    def evaluate(self, model, data_loader, device, num_classes, epoch, criterion):
         print("----------------\n eval current epoch ----------------\n ", epoch)
         model.eval()
 
         # Initialize the prediction and label lists(tensors)
         pred_list = torch.zeros(0, dtype=torch.long, device=device)
         target_list = torch.zeros(0, dtype=torch.long, device=device)
+
+        m_iou_list_eval_mean = []
+
+        loss_list = []
         with torch.no_grad():
             for sensor, target in tqdm(data_loader):
                 image = sensor[SensorTypes.Camera]
@@ -107,20 +116,47 @@ class Trainer:
                 output = model(image)
                 output = output['out']
 
-                _, preds = torch.max(output, 1)
+                loss = criterion(output, target.long())
+                loss_list.append(loss)
+
+                # 1. Log scalar values (scalar summary)
+                info = {'Loss': loss}
+
+                m_iou_list = self.metric_logger.iou(output, target, num_classes)
+                m_iou_list_eval_mean.append(np.array(m_iou_list).mean())
+                info['/mIoU'] = np.array(m_iou_list).mean()
+
+                # Using enumerate()
+                for i, val in enumerate(m_iou_list):
+                    info[i.__str__() + '/mIoU'] = val
+
+                self.writer_eval.log_scalars(info)
+                self.writer_eval.set_global_step()
+
+                # Compute accuracy
+                self.metric_logger.calculate_accuracy(output=output,
+                                                      target=target, writer=self.writer_train)
 
                 # Append batch prediction results
+                _, preds = torch.max(output, 1)
                 pred_list = torch.cat([pred_list, preds.view(-1).cpu()])
                 target_list = torch.cat([target_list, target.view(-1).cpu()])
 
+        info = {
+            '/mLoss': loss_list.float().mean(),
+            '/mIoU': m_iou_list_eval_mean.float().mean()
+        }
+        self.writer_eval_mean.log_scalars(info)
         self.metric_logger.update_matrix(pred_list.numpy(),
-                                         target_list.numpy(), "Eval/CM", self.writer_eval_mean)
+                                         target_list.numpy(), "/CM", self.writer_eval_mean)
+        self.writer_eval_mean.set_global_step()
 
-
-    def train_one_epoch(self, model, optimizer, data_loader, lr_scheduler, device, epoch, print_freq):
+    def train_one_epoch(self, model, optimizer, data_loader, num_classes,
+                        lr_scheduler, device, epoch, criterion):
         print("train current epoch", epoch)
-        criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
         model.train()
+
+        mIoUList = []
 
         for sensor, target in tqdm(data_loader):
             image = sensor[SensorTypes.Camera]
@@ -130,12 +166,17 @@ class Trainer:
 
             loss = criterion(output, target.long())
 
+            mIoUList = self.metric_logger.iou(output, target, num_classes)
+            info = {'loss': loss, 'mIoU': np.array(mIoUList).mean()}
+
+            # Using enumerate()
+            for i, val in enumerate(mIoUList):
+                info[i.__str__() + '/mIoU'] = val
+
             # Compute accuracy
             self.metric_logger.calculate_accuracy(output=output,
                                                   target=target, writer=self.writer_train)
 
-            # 1. Log scalar values (scalar summary)
-            info = {'loss': loss, 'mIoU': 1}
             self.writer_train.log_scalars(info)
             self.writer_train.set_global_step()
 
@@ -150,7 +191,7 @@ if __name__ == "__main__":
     now = datetime.now()
     writer1 = TensorboardLogger(log_dir='../runs/training_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
     writer2 = TensorboardLogger(log_dir='../runs/eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
-    writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger'+ now.strftime("%Y%m%d-%H%M%S") + "/")
+    writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
     trainer = Trainer(image_dir='/Users/hannahschieber/GitHub/deep_seg/data',
                       writer_train=writer1,
                       writer_eval=writer2,

@@ -20,7 +20,6 @@ class TensorboardLogger:
 
     def log_scalars(self, info):
         for tag, value in info.items():
-            print(self.global_step)
             self.writer.add_scalar(tag, value, self.global_step)
         self.writer.flush()
 

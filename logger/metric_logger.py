@@ -62,6 +62,7 @@ class MetricCalculator:
 
             self.overall_confusion_matrix = current_confusion_matrix
         writer.log_confusion_matrix(tag, self.overall_confusion_matrix)
+        self.compute_current_mean_intersection_over_union(writer=writer)
 
     def compute_current_mean_intersection_over_union(self, writer):
 
@@ -75,6 +76,51 @@ class MetricCalculator:
 
         writer.log_scalar('mIoU', mean_intersection_over_union)
         return mean_intersection_over_union
+
+    def mIOU(self, label, pred, num_classes=19):
+        pred = F.softmax(pred, dim=1)
+        pred = torch.argmax(pred, dim=1).squeeze(1)
+        iou_list = list()
+        present_iou_list = list()
+
+        pred = pred.view(-1)
+        label = label.view(-1)
+        # Note: Following for loop goes from 0 to (num_classes-1)
+        # and ignore_index is num_classes, thus ignore_index is
+        # not considered in computation of IoU.
+        for sem_class in range(num_classes):
+            pred_inds = (pred == sem_class)
+            target_inds = (label == sem_class)
+            if target_inds.long().sum().item() == 0:
+                iou_now = float('nan')
+            else:
+                intersection_now = (pred_inds[target_inds]).long().sum().item()
+                union_now = pred_inds.long().sum().item() + target_inds.long().sum().item() - intersection_now
+                iou_now = float(intersection_now) / float(union_now)
+                present_iou_list.append(iou_now)
+            iou_list.append(iou_now)
+        return np.mean(present_iou_list)
+
+    def iou(self, pred, target, n_classes=21):
+        ious = []
+        pred = torch.nn.functional.softmax(pred, dim=1)
+        pred = torch.argmax(pred, dim=1).squeeze(1)
+        pred = pred.view(-1)
+        target = target.view(-1)
+
+        for cls in range(n_classes):
+            pred_idx = (pred == cls)
+            target_idx = (target == cls)
+            intersection = (pred_idx[target_idx]).long().sum().item()  # Cast to long to prevent overflows
+
+            union = pred_idx.long().sum().item() + target_idx.long().sum().item() - intersection
+
+            if union == 0:
+                ious.append(float(0))  # If there is no ground truth, do not include in evaluation
+            else:
+                ious.append(float(intersection) / float(max(union, 1)))
+        print(np.array(ious))
+        return np.array(ious)
 
     def calculate_accuracy(self, output, target, writer: TensorboardLogger):
         _, argmax = torch.max(output, 1)
