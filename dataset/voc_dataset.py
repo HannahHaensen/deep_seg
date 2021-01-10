@@ -50,7 +50,7 @@ class VOCSegmentation(BasicDataset):
         self.masks = [os.path.join(mask_dir, x + ".png") for x in file_names]
         assert (len(self.images) == len(self.masks))
         self._normalize = Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-        self._crop = CenterCrop(10)
+        self._crop = CenterCrop(64)
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -78,3 +78,6 @@ class VOCSegmentation(BasicDataset):
 
     def __len__(self) -> int:
         return len(self.images)
+
+    def get_classes(self):
+        return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]

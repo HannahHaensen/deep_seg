@@ -24,14 +24,12 @@ class TensorboardLogger:
             self.writer.add_scalar(tag, value, self.global_step)
         self.writer.flush()
 
-    def log_confusion_matrix(self, output, target):
-        pred = torch.argmax(output, 1)
+    def log_confusion_matrix(self, tag, conf_mat):
 
-        conf_mat = confusion_matrix(pred.view(-1), target.view(-1))
         fig = plt.figure()
         plt.imshow(conf_mat)
 
-        self.writer.add_figure('confusion matrix eval', fig)
+        self.writer.add_figure(tag, fig)
         self.writer.flush()
 
     def log_image(self, tag, value):
