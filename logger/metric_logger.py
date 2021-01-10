@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix
 
-from logger.tensorboard_logging import TensorboardLogger
+from logger.tensorboard_logger import TensorboardLogger
 
 
 class MetricCalculator:

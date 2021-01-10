@@ -7,8 +7,8 @@ import torchvision
 
 from dataset.voc_dataset import VOCSegmentation
 from dataset.basic_dataset import DataSplit, SensorTypes
-from logger.metric_calculator import MetricCalculator
-from logger.tensorboard_logging import TensorboardLogger
+from logger.metric_logger import MetricCalculator
+from logger.tensorboard_logger import TensorboardLogger
 
 from tqdm import tqdm
 
