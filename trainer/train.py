@@ -16,10 +16,15 @@ import numpy as np
 
 
 class Trainer:
-    def __init__(self, image_dir: str, writer: TensorboardLogger):
+    def __init__(self, image_dir: str,
+                 writer_train: TensorboardLogger,
+                 writer_eval: TensorboardLogger,
+                 writer_eval_mean: TensorboardLogger):
         """Create a basic trainer for python training"""
         self.image_dir = image_dir
-        self.writer = writer
+        self.writer_train = writer_train
+        self.writer_eval = writer_eval
+        self.writer_eval_mean = writer_eval_mean
 
     def save_checkpoint(self, model, optimizer, save_path, epoch):
         torch.save({
@@ -75,12 +80,9 @@ class Trainer:
         start_time = time.time()
 
         for epoch in range(0, 10):
-            loss, accuracy = self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
+            self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
                                                   device=device, epoch=epoch, print_freq=5, lr_scheduler=lr_scheduler)
 
-            # 1. Log scalar values (scalar summary)
-            info = {'loss': loss, 'accuracy': accuracy}
-            writer.log_scalars(info, epoch)
             lr_scheduler.step()
 
             # evaluate after every epoch
@@ -108,10 +110,21 @@ class Trainer:
 
                 confmat.update(target.flatten(), output.argmax(1).flatten())
 
-            confmat.reduce_from_all_processes()
-            info = {'mIoU': 1}
-            self.writer.log_scalars(info, epoch)
+                # Compute accuracy
+                _, argmax = torch.max(output, 1)
+                accuracy = (target == argmax.squeeze()).float().mean()
 
+                # 1. Log scalar values (scalar summary)
+                info = {'mIoU': 1, 'accuracy': accuracy}
+                self.writer_eval.log_scalars(info)
+                self.writer_eval.log_confusion_matrix(output=output, target=target)
+                self.writer_eval.set_global_step()
+            confmat.reduce_from_all_processes()
+
+        info = {'mIoU': 1}
+        self.writer_eval_mean.log_scalars(info)
+        self.writer_eval_mean(info)
+        self.writer_eval_mean.set_global_step()
         return confmat
 
     def train_one_epoch(self, model, optimizer, data_loader, lr_scheduler, device, epoch, print_freq):
@@ -121,7 +134,6 @@ class Trainer:
         metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value}'))
         header = 'Epoch: [{}]'.format(epoch)
 
-        # default `log_dir` is "runs" - we'll be more specific here
         losses = 0
         accuracy = 0
 
@@ -129,21 +141,19 @@ class Trainer:
             image = sensor[SensorTypes.Camera]
             image, target = image.to(device), target.to(device)
             output = model(image)
+            output = output['out']
 
-            # writer.log_image(tag="prediction", value=output['out'])
-            # writer.log_image(tag="target", value=target)
-
-            loss = criterion(output['out'], target.long())
+            loss = criterion(output, target.long())
             losses += loss.item()
 
             # Compute accuracy
-            _, argmax = torch.max(output['out'], 1)
+            _, argmax = torch.max(output, 1)
             accuracy = (target == argmax.squeeze()).float().mean()
 
             # 1. Log scalar values (scalar summary)
             info = {'loss': loss, 'accuracy': accuracy, 'mIoU': 1}
-            self.writer.log_scalars(info, epoch
-                                    )
+            self.writer_train.log_scalars(info)
+            self.writer_train.set_global_step()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -156,8 +166,13 @@ class Trainer:
 
 
 if __name__ == "__main__":
-    writer = TensorboardLogger(log_dir='../runs/tensorboard_logger')
-    trainer = Trainer(image_dir='/Users/hannahschieber/GitHub/deep_seg/data', writer=writer)
+    writer1 = TensorboardLogger(log_dir='../runs/training_logger')
+    writer2 = TensorboardLogger(log_dir='../runs/eval_logger')
+    writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger')
+    trainer = Trainer(image_dir='/Users/hannahschieber/GitHub/deep_seg/data',
+                      writer_train=writer1,
+                      writer_eval=writer2,
+                      writer_eval_mean=writer3)
 
     # Saves the summaries to default directory names 'runs' in the current parent directory
     trainer.main()
