@@ -10,6 +10,32 @@ from torchvision.transforms import CenterCrop, Normalize, ToTensor, transforms, 
 from .basic_dataset import BasicDataset, DataSplit, SensorTypes
 
 
+def get_classes() -> Dict:
+    return {
+        1: '__background__',
+        2: 'aeroplane',
+        3: 'bicycle',
+        4: 'bird',
+        5: 'boat',
+        6:'bottle',
+        7: 'bus',
+        8: 'car',
+        9: 'cat',
+        10: 'chair',
+        11: 'cow',
+        12: 'diningtable',
+        13: 'dog',
+        14: 'horse',
+        15: 'motorbike',
+        16: 'person',
+        17: 'pottedplant',
+        18: 'sheep',
+        19: 'sofa',
+        20: 'train',
+        21: 'tvmonitor'
+    }
+
+
 class VOCSegmentation(BasicDataset):
     """`Pascal VOC <http://host.robots.ox.ac.uk/pascal/VOC/>`_ Segmentation Dataset.
     Args:
@@ -78,6 +104,3 @@ class VOCSegmentation(BasicDataset):
 
     def __len__(self) -> int:
         return len(self.images)
-
-    def get_classes(self):
-        return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
