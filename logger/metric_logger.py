@@ -1,6 +1,7 @@
 from typing import Any
 
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 from sklearn.metrics import confusion_matrix
 
@@ -25,7 +26,8 @@ class MetricCalculator:
        """
 
     def __init__(self, labels, ignore_label=255):
-        self.labels = labels
+        self.labels = list(labels.keys())
+        self.display_labels = list(labels.values())
         self.ignore_label = ignore_label
         self.overall_confusion_matrix = None
 
@@ -59,9 +61,9 @@ class MetricCalculator:
 
             self.overall_confusion_matrix += current_confusion_matrix
         else:
-
             self.overall_confusion_matrix = current_confusion_matrix
-        writer.log_confusion_matrix(tag, self.overall_confusion_matrix)
+
+        writer.log_confusion_matrix(tag, self.overall_confusion_matrix, self.display_labels)
         self.compute_current_mean_intersection_over_union(writer=writer)
 
     def compute_current_mean_intersection_over_union(self, writer):
@@ -72,34 +74,10 @@ class MetricCalculator:
         union = ground_truth_set + predicted_set - intersection
 
         intersection_over_union = intersection / union.astype(np.float32)
-        mean_intersection_over_union = np.mean(intersection_over_union)
+        mean_intersection_over_union = np.mean(np.nan_to_num(intersection_over_union))
 
         writer.log_scalar('mIoU', mean_intersection_over_union)
         return mean_intersection_over_union
-
-    def mIOU(self, label, pred, num_classes=19):
-        pred = F.softmax(pred, dim=1)
-        pred = torch.argmax(pred, dim=1).squeeze(1)
-        iou_list = list()
-        present_iou_list = list()
-
-        pred = pred.view(-1)
-        label = label.view(-1)
-        # Note: Following for loop goes from 0 to (num_classes-1)
-        # and ignore_index is num_classes, thus ignore_index is
-        # not considered in computation of IoU.
-        for sem_class in range(num_classes):
-            pred_inds = (pred == sem_class)
-            target_inds = (label == sem_class)
-            if target_inds.long().sum().item() == 0:
-                iou_now = float('nan')
-            else:
-                intersection_now = (pred_inds[target_inds]).long().sum().item()
-                union_now = pred_inds.long().sum().item() + target_inds.long().sum().item() - intersection_now
-                iou_now = float(intersection_now) / float(union_now)
-                present_iou_list.append(iou_now)
-            iou_list.append(iou_now)
-        return np.mean(present_iou_list)
 
     def iou(self, pred, target, n_classes=21):
         ious = []
@@ -119,11 +97,25 @@ class MetricCalculator:
                 ious.append(float(0))  # If there is no ground truth, do not include in evaluation
             else:
                 ious.append(float(intersection) / float(max(union, 1)))
-        print(np.array(ious))
+        # print(np.array(ious))
         return np.array(ious)
 
-    def calculate_accuracy(self, output, target, writer: TensorboardLogger):
+    def calculate_accuracy(self, output, target):
         _, argmax = torch.max(output, 1)
         accuracy = (target == argmax.squeeze()).float().mean()
-        writer.log_scalar('accuracy', accuracy)
+        return accuracy
 
+    def calculate_metrics_for_epoch(self, writer, loss, num_classes, output, target):
+        m_io_u_list = self.iou(output, target, num_classes)
+        info = {
+            'overall/loss': loss,
+            'overall/mIoU': np.array(m_io_u_list).mean(),
+            'overall/accuracy': self.calculate_accuracy(output, target)  # Compute accuracy
+        }
+        # Using enumerate()
+        for i, val in enumerate(m_io_u_list):
+            info[self.display_labels[i] + '/IoU'] = val
+
+        writer.log_scalars(info)
+        writer.set_global_step()
+        return m_io_u_list

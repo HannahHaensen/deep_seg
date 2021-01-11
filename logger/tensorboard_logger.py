@@ -1,6 +1,9 @@
+import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 import matplotlib.pyplot as plt
 
 class TensorboardLogger:
@@ -23,7 +26,8 @@ class TensorboardLogger:
             self.writer.add_scalar(tag, value, self.global_step)
         self.writer.flush()
 
-    def log_confusion_matrix(self, tag, conf_mat):
+    def log_confusion_matrix(self, tag, conf_mat, labels):
+        cmap = plt.get_cmap('Blues')
 
         fig = plt.figure()
         plt.imshow(conf_mat)

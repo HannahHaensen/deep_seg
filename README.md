@@ -1,5 +1,13 @@
 # deep_seg
 
+@Misc{Yadan2019Hydra,
+  author =       {Omry Yadan},
+  title =        {Hydra - A framework for elegantly configuring complex applications},
+  howpublished = {Github},
+  year =         {2019},
+  url =          {https://github.com/facebookresearch/hydra}
+}
+
 ### helper function to show an image
 ### (used in the `plot_classes_preds` function below)
 def matplotlib_imshow(img, one_channel=False):
