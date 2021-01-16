@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Union, Optional, Callable, Tuple, Any
 
+from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
 
@@ -19,12 +20,12 @@ class BasicDataset(Dataset):
 
     def __init__(
             self,
-            root: str,
+            cfg: DictConfig,
             split: DataSplit = DataSplit.Train,
             transforms: Optional[Callable] = None,
     ) -> None:
         # super(BasicDataset, self).__init__(root=root, split=split, transforms=transforms)
-        self.root = root
+        self.cfg = cfg
         self.split = split
         self.transforms = transforms
 

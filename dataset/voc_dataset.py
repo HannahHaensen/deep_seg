@@ -5,6 +5,7 @@ import torch
 from PIL import Image
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from omegaconf import DictConfig
 from torchvision.transforms import CenterCrop, Normalize, ToTensor, transforms, Resize
 
 from .basic_dataset import BasicDataset, DataSplit, SensorTypes
@@ -51,17 +52,18 @@ class VOCSegmentation(BasicDataset):
 
     def __init__(
             self,
-            root: str,
+            cfg: DictConfig,
             split: DataSplit = DataSplit.Train,
             transforms: Optional[Callable] = None,
     ):
-        super(VOCSegmentation, self).__init__(root=root, split=split, transforms=transforms)
+        super(VOCSegmentation, self).__init__(cfg=cfg,
+                                              split=split,
+                                              transforms=transforms)
+        print(cfg)
+        image_dir = os.path.join(cfg.dataset.root_path, cfg.dataset.image_sub_path)
+        mask_dir = os.path.join(cfg.dataset.root_path, cfg.dataset.mask_sub_path)
 
-        voc_root = os.path.join(self.root, '/Users/hannahschieber/GitHub/deep_seg/data/VOC2012')
-        image_dir = os.path.join(voc_root, 'JPEGImages')
-        mask_dir = os.path.join(voc_root, 'SegmentationClass')
-
-        splits_dir = os.path.join(voc_root, 'ImageSets/Segmentation')
+        splits_dir = os.path.join(cfg.dataset.root_path, 'ImageSets/Segmentation')
         image_set = "train"
 
         if DataSplit.Eval:

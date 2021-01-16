@@ -2,9 +2,12 @@ import datetime
 import time
 from datetime import datetime
 
+import hydra
 import numpy as np
 import torch
 import torchvision
+from hydra.experimental import initialize, compose
+from omegaconf import DictConfig, OmegaConf
 
 from dataset.voc_dataset import VOCSegmentation, get_classes
 from dataset.basic_dataset import DataSplit, SensorTypes
@@ -15,18 +18,25 @@ from tqdm import tqdm
 
 
 class Trainer:
-    def __init__(self, image_dir: str,
-                 writer_train: TensorboardLogger,
-                 writer_eval: TensorboardLogger,
-                 writer_eval_mean: TensorboardLogger):
+
+    def __init__(self, cfg: DictConfig):
         """Create a basic trainer for python training"""
-        self.image_dir = image_dir
-        self.writer_train = writer_train
-        self.writer_eval = writer_eval
-        self.writer_eval_mean = writer_eval_mean
+
+        self.config = cfg
         self.metric_logger = MetricCalculator(
             labels=get_classes()
         )
+        self.writer_train = None
+        self.writer_eval = None
+        self.writer_eval_mean = None
+
+
+    def set_writer(self, writer_train: TensorboardLogger,
+                   writer_eval: TensorboardLogger,
+                   writer_eval_mean: TensorboardLogger) -> None:
+        self.writer_train = writer_train
+        self.writer_eval = writer_eval
+        self.writer_eval_mean = writer_eval_mean
 
     def save_checkpoint(self, model, optimizer, save_path, epoch):
         torch.save({
@@ -43,10 +53,10 @@ class Trainer:
 
         return model, optimizer, epoch
 
-    def loading_data_set(self, root: str = None):
+    def loading_data_set(self):
         # Data loading code
-        train_dataset = VOCSegmentation(split=DataSplit.Train, root=root)
-        eval_dataset = VOCSegmentation(split=DataSplit.Eval, root=root)
+        train_dataset = VOCSegmentation(split=DataSplit.Train, cfg=self.config)
+        eval_dataset = VOCSegmentation(split=DataSplit.Eval, cfg=self.config)
         print('Loading data...')
         data_loader = torch.utils.data.DataLoader(
             train_dataset,
@@ -65,10 +75,11 @@ class Trainer:
         print('Using device:', device)
         print()
 
-        data_loader, data_loader_eval = self.loading_data_set(root=self.image_dir)
+        data_loader, data_loader_eval = self.loading_data_set()
 
         print("Creating model")
-        model = torchvision.models.segmentation.deeplabv3_resnet50(pretrained=True, num_classes=21)
+        model = torchvision.models.segmentation.deeplabv3_resnet50(pretrained=True,
+                                                                   num_classes=self.config.dataset.number_of_classes)
         model.to(device)
 
         params = [p for p in model.parameters() if p.requires_grad]
@@ -83,7 +94,7 @@ class Trainer:
 
         criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
         test = 0
-        for _ in tqdm(iterable=range(0, 10), desc="Epoch:"):
+        for _ in tqdm(iterable=range(0, 10), desc="Epoch"):
             self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
                                  num_classes=num_classes, device=device,
                                  lr_scheduler=lr_scheduler, criterion=criterion)
@@ -110,7 +121,7 @@ class Trainer:
 
         loss_list = []
         with torch.no_grad():
-            for sensor, target in tqdm(data_loader, mininterval=10.0):
+            for sensor, target in tqdm(data_loader, mininterval=10.0, desc="Eval"):
                 image = sensor[SensorTypes.Camera]
                 image, target = image.to(device), target.to(device)
                 output = model(image)
@@ -149,7 +160,7 @@ class Trainer:
 
         model.train()
 
-        for sensor, target in tqdm(data_loader):
+        for sensor, target in tqdm(data_loader, desc="Train"):
             image = sensor[SensorTypes.Camera]
             image, target = image.to(device), target.to(device)
             output = model(image)
@@ -167,16 +178,21 @@ class Trainer:
 
             lr_scheduler.step()
 
-
 if __name__ == "__main__":
     now = datetime.now()
     writer1 = TensorboardLogger(log_dir='../runs/training_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
     writer2 = TensorboardLogger(log_dir='../runs/eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
     writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
-    trainer = Trainer(image_dir='/Users/hannahschieber/GitHub/deep_seg/data',
-                      writer_train=writer1,
-                      writer_eval=writer2,
-                      writer_eval_mean=writer3)
+
+    initialize(config_path="../config/", job_name="test_app")
+    cfg = compose(config_name="config")
+    print(OmegaConf.to_yaml(cfg))
+
+    trainer = Trainer(cfg=cfg)
+
+    trainer.set_writer(writer_train=writer1,
+                       writer_eval=writer2,
+                       writer_eval_mean=writer3)
 
     # Saves the summaries to default directory names 'runs' in the current parent directory
     trainer.main()
