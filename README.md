@@ -1,4 +1,4 @@
-# deep_seg
+# PyTorch Framework
 
 @Misc{Yadan2019Hydra,
   author =       {Omry Yadan},
