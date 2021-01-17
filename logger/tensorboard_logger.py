@@ -1,10 +1,15 @@
 import numpy as np
 import torch
+from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.pyplot as plt
+from torchvision.transforms import transforms
+
+from dataset.voc_dataset import get_color_for_classes
+
 
 class TensorboardLogger:
 
@@ -36,7 +41,9 @@ class TensorboardLogger:
         self.writer.flush()
 
     def log_image(self, tag, value):
-        return
+
+        # self.writer.add_image(tag, img, self.global_step)
+        self.writer.add_image(tag, value, self.global_step)
         # y = torch.squeeze(value, 1)
         # self.writer.add_image(tag=tag, img_tensor=y)
 

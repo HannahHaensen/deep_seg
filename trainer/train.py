@@ -16,6 +16,8 @@ from logger.tensorboard_logger import TensorboardLogger
 
 from tqdm import tqdm
 
+from tensorboard import program
+
 
 class Trainer:
 
@@ -29,7 +31,6 @@ class Trainer:
         self.writer_train = None
         self.writer_eval = None
         self.writer_eval_mean = None
-
 
     def set_writer(self, writer_train: TensorboardLogger,
                    writer_eval: TensorboardLogger,
@@ -70,7 +71,7 @@ class Trainer:
         print('Done...')
         return data_loader, data_loader_eval
 
-    def main(self, num_classes=21):
+    def main(self):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print('Using device:', device)
         print()
@@ -78,8 +79,9 @@ class Trainer:
         data_loader, data_loader_eval = self.loading_data_set()
 
         print("Creating model")
-        model = torchvision.models.segmentation.deeplabv3_resnet50(pretrained=True,
-                                                                   num_classes=self.config.dataset.number_of_classes)
+        model = torchvision.models.segmentation.deeplabv3_resnet50(
+            pretrained=True,
+            num_classes=self.config.dataset.number_of_classes)
         model.to(device)
 
         params = [p for p in model.parameters() if p.requires_grad]
@@ -93,17 +95,17 @@ class Trainer:
         start_time = time.time()
 
         criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
-        test = 0
+
         for _ in tqdm(iterable=range(0, 10), desc="Epoch"):
             self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
-                                 num_classes=num_classes, device=device,
+                                 num_classes=self.config.dataset.number_of_classes, device=device,
                                  lr_scheduler=lr_scheduler, criterion=criterion)
 
             lr_scheduler.step()
 
             # evaluate after every epoch
             self.evaluate(model=model, data_loader=data_loader_eval,
-                          device=device, num_classes=21, criterion=criterion)
+                          device=device, num_classes=self.config.dataset.number_of_classes, criterion=criterion)
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -134,6 +136,7 @@ class Trainer:
                 m_iou_list_eval_mean.append(
                     self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_eval,
                                                                    loss=loss,
+                                                                   image=image[-1, :, :, :],
                                                                    num_classes=num_classes,
                                                                    output=output,
                                                                    target=target))
@@ -170,7 +173,8 @@ class Trainer:
 
             self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_train, loss=loss,
                                                            num_classes=num_classes, output=output,
-                                                           target=target)
+                                                           image=image[-1, :, :, :],
+                                                           target=target, is_train=True)
 
             optimizer.zero_grad()
             loss.backward()
@@ -178,8 +182,14 @@ class Trainer:
 
             lr_scheduler.step()
 
+
 if __name__ == "__main__":
     now = datetime.now()
+
+    tb = program.TensorBoard()
+    tb.configure(argv=[None, '--logdir', '../runs'])
+    url = tb.launch()
+
     writer1 = TensorboardLogger(log_dir='../runs/training_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
     writer2 = TensorboardLogger(log_dir='../runs/eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
     writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")

@@ -1,3 +1,4 @@
+from itertools import product
 from typing import Any
 
 import numpy as np
@@ -5,6 +6,7 @@ import matplotlib.pyplot as plt
 import torch
 from sklearn.metrics import confusion_matrix
 
+from dataset.voc_dataset import get_color_for_classes
 from logger.tensorboard_logger import TensorboardLogger
 
 
@@ -30,6 +32,9 @@ class MetricCalculator:
         self.display_labels = list(labels.values())
         self.ignore_label = ignore_label
         self.overall_confusion_matrix = None
+        self.best_prediction_train = 0
+        self.best_prediction_eval = 0
+        self.color_palette = get_color_for_classes()
 
     def update_matrix(self, ground_truth: Any, prediction: Any,
                       tag: str, writer: TensorboardLogger):
@@ -80,7 +85,7 @@ class MetricCalculator:
         return mean_intersection_over_union
 
     def iou(self, pred, target, n_classes=21):
-        ious = []
+        i_o_u = []
         pred = torch.nn.functional.softmax(pred, dim=1)
         pred = torch.argmax(pred, dim=1).squeeze(1)
         pred = pred.view(-1)
@@ -94,28 +99,70 @@ class MetricCalculator:
             union = pred_idx.long().sum().item() + target_idx.long().sum().item() - intersection
 
             if union == 0:
-                ious.append(float(0))  # If there is no ground truth, do not include in evaluation
+                i_o_u.append(float(0))  # If there is no ground truth, do not include in evaluation
             else:
-                ious.append(float(intersection) / float(max(union, 1)))
-        # print(np.array(ious))
-        return np.array(ious)
+                i_o_u.append(float(intersection) / float(max(union, 1)))
+        return np.array(i_o_u)
+
+    def calculate_accuracy_per_class(self, outputs, targets, num_classes: int = 21):
+        acc = []
+        _, preds = torch.max(outputs.data, 1)
+        for c in range(num_classes):
+            acc.append(((preds == targets).all() * (targets == 0)).all().float() / (max(targets == c).sum(), 1))
+        return acc
 
     def calculate_accuracy(self, output, target):
         _, argmax = torch.max(output, 1)
         accuracy = (target == argmax.squeeze()).float().mean()
         return accuracy
 
-    def calculate_metrics_for_epoch(self, writer, loss, num_classes, output, target):
-        m_io_u_list = self.iou(output, target, num_classes)
+    def calculate_metrics_for_epoch(self, writer: TensorboardLogger,
+                                    loss: float, output, target,
+                                    image,
+                                    is_train: bool = False,
+                                    num_classes: int = 21) -> [float]:
+        m_io_u_per_class = self.iou(output, target, num_classes)
+        m_i_o_u = np.array(m_io_u_per_class).mean()
+
+        # m_acc_per_class = self.calculate_accuracy_per_class(outputs=output, targets=target, num_classes=num_classes)
         info = {
             'overall/loss': loss,
-            'overall/mIoU': np.array(m_io_u_list).mean(),
+            'overall/mIoU': m_i_o_u,
             'overall/accuracy': self.calculate_accuracy(output, target)  # Compute accuracy
         }
         # Using enumerate()
-        for i, val in enumerate(m_io_u_list):
-            info[self.display_labels[i] + '/IoU'] = val
+        for i in range(num_classes):
+            info[self.display_labels[i] + '/IoU'] = m_io_u_per_class[i]
+            # info[self.display_labels[i] + '/Accuracy'] = m_acc_per_class[i]
+
+        _, preds = torch.max(output.data, 1)
+        if is_train:
+            if self.best_prediction_train < m_i_o_u:
+                self.best_prediction_train = m_i_o_u
+                self.log_images_to_board(image, preds, target, writer, 'train')
+        else:
+            if self.best_prediction_eval < m_i_o_u:
+                self.best_prediction_eval = m_i_o_u
+                self.log_images_to_board(image, preds, target, writer, 'eval')
 
         writer.log_scalars(info)
         writer.set_global_step()
-        return m_io_u_list
+
+        return m_io_u_per_class
+
+    def log_images_to_board(self, image, preds, target, writer: TensorboardLogger, tag: str = ''):
+        rgb_target = self.create_rgb_target(target)
+        rgb_pred = self.create_rgb_target(preds)
+        writer.log_image(tag + '/best_prediction', rgb_pred)
+        writer.log_image(tag + '/best_target', rgb_target)
+        writer.log_image(tag + '/best_image', image)
+
+    def create_rgb_target(self, target):
+        target = target[-1, :, :]
+        h, w = target.shape
+        rgb_target = np.random.randint(255, size=(h, w, 3), dtype=np.uint8)
+        for pos in product(range(h), range(w)):
+            pixel = target[pos[0]][pos[1]]
+            rgb_target[pos[0]][pos[1]] = self.color_palette[pixel.item()]
+        rgb_target = np.transpose(rgb_target, (2, 0, 1))
+        return rgb_target
