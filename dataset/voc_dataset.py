@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from omegaconf import DictConfig
 from torchvision.transforms import CenterCrop, Normalize, ToTensor, transforms, Resize
 
-from .basic_dataset import BasicDataset, DataSplit, SensorTypes
+from .basic_dataset import BasicDataset, DataSplit
 
 
 def get_classes() -> Dict:
@@ -130,7 +130,7 @@ class VOCSegmentation(BasicDataset):
 
         # print("return of get item")
         # print(img.shape, target.shape)
-        return {SensorTypes.Camera: img}, target
+        return img, target
 
     def __len__(self) -> int:
         return len(self.images)

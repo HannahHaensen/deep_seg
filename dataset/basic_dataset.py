@@ -10,11 +10,6 @@ class DataSplit(Enum):
     Test = 2
     Eval = 3
 
-
-class SensorTypes(Enum):
-    Camera = 1
-
-
 class BasicDataset(Dataset):
     """Basic Dataset"""
 
@@ -41,4 +36,4 @@ class BasicDataset(Dataset):
         """
         semantic_target = None
         image = None
-        return {SensorTypes.Camera: image}, semantic_target
+        return image, semantic_target

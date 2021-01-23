@@ -1,6 +1,8 @@
 import datetime
+import shutil
 import time
 from datetime import datetime
+from enum import Enum
 
 import hydra
 import numpy as np
@@ -10,7 +12,7 @@ from hydra.experimental import initialize, compose
 from omegaconf import DictConfig, OmegaConf
 
 from dataset.voc_dataset import VOCSegmentation, get_classes
-from dataset.basic_dataset import DataSplit, SensorTypes
+from dataset.basic_dataset import DataSplit
 from logger.metric_logger import MetricCalculator
 from logger.tensorboard_logger import TensorboardLogger
 
@@ -19,15 +21,21 @@ from tqdm import tqdm
 from tensorboard import program
 
 
+class FrameworkType(Enum):
+    Classification = 0
+    Segmentation = 1
+
+
 class Trainer:
 
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, framework_type: FrameworkType):
         """Create a basic trainer for python training"""
 
         self.config = cfg
         self.metric_logger = MetricCalculator(
             labels=get_classes()
         )
+        self.framework_type = framework_type
         self.writer_train = None
         self.writer_eval = None
         self.writer_eval_mean = None
@@ -85,8 +93,8 @@ class Trainer:
         model.to(device)
 
         params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.SGD(
-            params, lr=0.001, momentum=0.0009, weight_decay=0.001)
+        optimizer = torch.optim.Adam(
+            params, lr=cfg.learning_process.learning_rate, weight_decay=0.001)
 
         # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
         lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=0.2)
@@ -123,8 +131,8 @@ class Trainer:
 
         loss_list = []
         with torch.no_grad():
-            for sensor, target in tqdm(data_loader, mininterval=10.0, desc="Eval"):
-                image = sensor[SensorTypes.Camera]
+            for input_img, target in tqdm(data_loader, mininterval=10.0, desc="Eval"):
+                image = input_img
                 image, target = image.to(device), target.to(device)
                 output = model(image)
                 output = output['out']
@@ -133,13 +141,14 @@ class Trainer:
                 loss_list.append(loss)
 
                 # 1. Log scalar values (scalar summary)
-                m_iou_list_eval_mean.append(
-                    self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_eval,
-                                                                   loss=loss,
-                                                                   image=image[-1, :, :, :],
-                                                                   num_classes=num_classes,
-                                                                   output=output,
-                                                                   target=target))
+                if self.framework_type == FrameworkType.Segmentation:
+                    m_iou_list_eval_mean.append(
+                        self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_eval,
+                                                                       loss=loss,
+                                                                       image=image[-1, :, :, :],
+                                                                       num_classes=num_classes,
+                                                                       output=output,
+                                                                       target=target))
 
                 # Append batch prediction results
                 _, preds = torch.max(output, 1)
@@ -163,18 +172,19 @@ class Trainer:
 
         model.train()
 
-        for sensor, target in tqdm(data_loader, desc="Train"):
-            image = sensor[SensorTypes.Camera]
+        for input_image, target in tqdm(data_loader, desc="Train"):
+            image = input_image
             image, target = image.to(device), target.to(device)
             output = model(image)
             output = output['out']
 
             loss = criterion(output, target.long())
 
-            self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_train, loss=loss,
-                                                           num_classes=num_classes, output=output,
-                                                           image=image[-1, :, :, :],
-                                                           target=target, is_train=True)
+            if self.framework_type == FrameworkType.Segmentation:
+                self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_train, loss=loss,
+                                                               num_classes=num_classes, output=output,
+                                                               image=image[-1, :, :, :],
+                                                               target=target, is_train=True)
 
             optimizer.zero_grad()
             loss.backward()
@@ -186,19 +196,22 @@ class Trainer:
 if __name__ == "__main__":
     now = datetime.now()
 
+    shutil.rmtree('../runs/', ignore_errors=True)
+
     tb = program.TensorBoard()
     tb.configure(argv=[None, '--logdir', '../runs'])
+
     url = tb.launch()
 
-    writer1 = TensorboardLogger(log_dir='../runs/training_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
-    writer2 = TensorboardLogger(log_dir='../runs/eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
-    writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger' + now.strftime("%Y%m%d-%H%M%S") + "/")
+    writer1 = TensorboardLogger(log_dir='../runs/training_logger')
+    writer2 = TensorboardLogger(log_dir='../runs/eval_logger')
+    writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger')
 
     initialize(config_path="../config/", job_name="test_app")
     cfg = compose(config_name="config")
     print(OmegaConf.to_yaml(cfg))
 
-    trainer = Trainer(cfg=cfg)
+    trainer = Trainer(cfg=cfg, framework_type=FrameworkType.Segmentation)
 
     trainer.set_writer(writer_train=writer1,
                        writer_eval=writer2,
