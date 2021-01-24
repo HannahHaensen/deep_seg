@@ -1,4 +1,5 @@
 from itertools import product
+from math import floor, ceil
 from typing import Any
 
 import numpy as np
@@ -6,7 +7,7 @@ import matplotlib.pyplot as plt
 import torch
 from sklearn.metrics import confusion_matrix
 
-from dataset.voc_dataset import get_color_for_classes
+from dataset.voc_seg_dataset import get_color_for_classes
 from logger.tensorboard_logger import TensorboardLogger
 
 
@@ -116,11 +117,40 @@ class MetricCalculator:
         accuracy = (target == argmax.squeeze()).float().mean()
         return accuracy
 
-    def calculate_metrics_for_epoch(self, writer: TensorboardLogger,
-                                    loss: float, output, target,
-                                    image,
-                                    is_train: bool = False,
-                                    num_classes: int = 21) -> [float]:
+    def calculate_classification_metrics_for_epoch(self, writer: TensorboardLogger,
+                                        loss: float,
+                                        outputs,
+                                        labels,
+                                        image,
+                                        is_train: bool = False) -> [float]:
+        _, predictions = torch.max(outputs, dim=1)
+        correct = torch.sum(predictions == labels).item()
+        total = labels.size(0)
+        acc = correct/total
+        info = {
+            'epoch/loss': loss,
+            'epoch/accuracy': acc # Compute accuracy
+        }
+        if is_train:
+            if self.best_prediction_train < acc:
+                self.best_prediction_train = acc
+                writer.log_image('train/best_prediction', image)
+        else:
+            if self.best_prediction_eval < acc:
+                self.best_prediction_eval = acc
+                writer.log_image('eval/best_prediction', image)
+
+        writer.log_scalars(info)
+        writer.set_global_step()
+
+        return correct, total
+
+
+    def calculate_seg_metrics_for_epoch(self, writer: TensorboardLogger,
+                                        loss: float, output, target,
+                                        image,
+                                        is_train: bool = False,
+                                        num_classes: int = 21) -> [float]:
         m_io_u_per_class = self.iou(output, target, num_classes)
         m_i_o_u = np.array(m_io_u_per_class).mean()
 
@@ -166,3 +196,22 @@ class MetricCalculator:
             rgb_target[pos[0]][pos[1]] = self.color_palette[pixel.item()]
         rgb_target = np.transpose(rgb_target, (2, 0, 1))
         return rgb_target
+
+    def intersection_over_union(boxA, boxB):
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+
+        interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+        boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+        boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+        return (interArea / float(boxAArea + boxBArea - interArea))
+
+    def convert_bbox(old_size, new_size, x_min, y_min, x_max, y_max):
+        x_min_new = floor((x_min / old_size[0]) * new_size[0])
+        y_min_new = floor((y_min / old_size[1]) * new_size[1])
+        x_max_new = ceil((x_max / old_size[0]) * new_size[0])
+        y_max_new = ceil((y_max / old_size[1]) * new_size[1])
+
+        return [x_min_new, y_min_new, x_max_new, y_max_new]

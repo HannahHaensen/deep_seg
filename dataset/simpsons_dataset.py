@@ -1,3 +1,4 @@
+import os
 import pickle
 from enum import Enum
 from pathlib import Path
@@ -6,9 +7,8 @@ from typing import Union, Optional, Callable, Tuple, Any
 import numpy as np
 from PIL import Image
 from omegaconf import DictConfig
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from torch.utils.data import Dataset
+
+from torchvision import datasets, transforms
 
 from dataset.basic_dataset import BasicDataset, DataSplit
 
@@ -19,43 +19,55 @@ class SimpsonsDataset(BasicDataset):
     def __init__(
             self,
             cfg: DictConfig,
-            split: DataSplit = DataSplit.Train,
-            transforms: Optional[Callable] = None,
+            split: DataSplit = DataSplit.Train
     ) -> None:
         super(SimpsonsDataset, self).__init__(cfg=cfg,
-                                              split=split,
-                                              transforms=transforms)
-        self.cfg = cfg
-        self.split = split
-        self.transforms = transforms
-        self.train_dir = Path('/kaggle/input/the-simpsons-characters-dataset/simpsons_dataset/')
+                                              split=split)
+        root_dir = cfg.dataset.root_path
 
-        self.train_val_files_path = sorted(list(self.train_dir.rglob('*.jpg')))
-        self.train_val_labels = [path.parent.name for path in self.train_val_files_path]
+        classes = [d.name for d in os.scandir(root_dir) if d.is_dir()]
+        classes.sort()
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
+        samples = []
+        for target_class in sorted(class_to_idx.keys()):
+            class_index = class_to_idx[target_class]
+            target_dir = os.path.join(root_dir, target_class)
+            if not os.path.isdir(target_dir):
+                continue
+            for root, _, fnames in sorted(os.walk(target_dir, followlinks=True)):
+                for fname in sorted(fnames):
+                    path = os.path.join(root, fname)
+                    item = path, class_index
+                    samples.append(item)
 
-        self.labels = [path.parent.name for path in self.files_path]
-        self.label_encoder = LabelEncoder()
-        self.label_encoder.fit(self.labels)
+        self.samples = samples
+        self.targets = [s[1] for s in samples]
 
-        with open('label_encoder.pkl', 'wb') as le_dump_file:
-            pickle.dump(self.label_encoder, le_dump_file)
+        resize = transforms.Resize((255, 255))
+        to_tensor = transforms.ToTensor()
+        normalise = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
+        horizontal_flip = transforms.RandomHorizontalFlip(p=0.3)
+        # random_crop = transforms.RandomCrop(90)
+        self.transforms = transforms.Compose([resize,
+                                         horizontal_flip,
+                                          to_tensor,
+                                          normalise])
 
-    def __len__(self):
-        return len(self.files_path)
-
-    def __getitem__(self, idx: int) -> Tuple[Any, Any]:
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
         Args:
             index (int): Index
         Returns:
-            tuple: (image, target)
+            tuple: (sample, target) where target is class_index of the target class.
         """
+        path, target = self.samples[index]
+        img = Image.open(path).convert('RGB')
+        # img = np.array(img)
+        if self.transforms is not None:
+            sample = self.transforms(img)
 
-        img_path = str(self.train_val_files_path[idx])
-        image = Image.open(img_path)
-        image = self.transform(image)
+        return sample, target
 
-        label_str = str(self.train_val_files_path[idx].parent.name)
-        label = self.label_encoder.transform([label_str]).item()
-
-        return image, label
+    def __len__(self) -> int:
+        return len(self.samples)

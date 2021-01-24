@@ -8,7 +8,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from torchvision.transforms import transforms
 
-from dataset.voc_dataset import get_color_for_classes
+from dataset.voc_seg_dataset import get_color_for_classes
 
 
 class TensorboardLogger:

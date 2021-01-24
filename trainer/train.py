@@ -4,14 +4,16 @@ import time
 from datetime import datetime
 from enum import Enum
 
-import hydra
 import numpy as np
 import torch
 import torchvision
 from hydra.experimental import initialize, compose
 from omegaconf import DictConfig, OmegaConf
+from sklearn.model_selection import train_test_split
+from torch.utils.data import SubsetRandomSampler
 
-from dataset.voc_dataset import VOCSegmentation, get_classes
+from dataset.simpsons_dataset import SimpsonsDataset
+from dataset.voc_seg_dataset import VOCSegmentation, get_classes
 from dataset.basic_dataset import DataSplit
 from logger.metric_logger import MetricCalculator
 from logger.tensorboard_logger import TensorboardLogger
@@ -23,8 +25,8 @@ from tensorboard import program
 
 class FrameworkType(Enum):
     Classification = 0
-    Segmentation = 1
-
+    ObjectDetection = 1
+    Segmentation = 2
 
 class Trainer:
 
@@ -64,18 +66,44 @@ class Trainer:
 
     def loading_data_set(self):
         # Data loading code
-        train_dataset = VOCSegmentation(split=DataSplit.Train, cfg=self.config)
-        eval_dataset = VOCSegmentation(split=DataSplit.Eval, cfg=self.config)
+        if self.framework_type == FrameworkType.Classification:
+            dataset = SimpsonsDataset(cfg=self.config)
+            batch_size = 16
+            validation_split = .2
+            shuffle_dataset = True
+            random_seed = 42
+
+            # Creating data indices for training and validation splits:
+            dataset_size = len(dataset)
+            indices = list(range(dataset_size))
+            split = int(np.floor(validation_split * dataset_size))
+            if shuffle_dataset:
+                np.random.seed(random_seed)
+                np.random.shuffle(indices)
+            train_indices, val_indices = indices[split:], indices[:split]
+
+            # Creating PT data samplers and loaders:
+            train_sampler = SubsetRandomSampler(train_indices)
+            valid_sampler = SubsetRandomSampler(val_indices)
+
+            data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                                      sampler=train_sampler)
+            data_loader_eval = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                                           sampler=valid_sampler)
+        else:
+            train_dataset = VOCSegmentation(split=DataSplit.Train, cfg=self.config)
+            eval_dataset = VOCSegmentation(split=DataSplit.Eval, cfg=self.config)
+            data_loader = torch.utils.data.DataLoader(
+                train_dataset,
+                batch_size=20,
+                shuffle=True,
+                num_workers=1,
+                pin_memory=True)
+            data_loader_eval = torch.utils.data.DataLoader(
+                eval_dataset, batch_size=1,
+                num_workers=1)
         print('Loading data...')
-        data_loader = torch.utils.data.DataLoader(
-            train_dataset,
-            batch_size=20,
-            shuffle=True,
-            num_workers=1,
-            pin_memory=True)
-        data_loader_eval = torch.utils.data.DataLoader(
-            eval_dataset, batch_size=1,
-            num_workers=1)
+
         print('Done...')
         return data_loader, data_loader_eval
 
@@ -87,9 +115,15 @@ class Trainer:
         data_loader, data_loader_eval = self.loading_data_set()
 
         print("Creating model")
-        model = torchvision.models.segmentation.deeplabv3_resnet50(
-            pretrained=True,
-            num_classes=self.config.dataset.number_of_classes)
+        model = None
+        if self.framework_type == FrameworkType.Segmentation:
+            model = torchvision.models.segmentation.deeplabv3_resnet50(
+                pretrained=True,
+                num_classes=self.config.dataset.number_of_classes)
+        elif self.framework_type == FrameworkType.Classification:
+            model = torchvision.models.resnet50(pretrained=True)
+        else:
+            NotImplementedError
         model.to(device)
 
         params = [p for p in model.parameters() if p.requires_grad]
@@ -102,7 +136,9 @@ class Trainer:
         print("Start training")
         start_time = time.time()
 
-        criterion = torch.nn.CrossEntropyLoss(ignore_index=255)
+        criterion = torch.nn.CrossEntropyLoss()
+        # if self.config.learning_process.ignore_index != 'None':
+            # criterion = torch.nn.CrossEntropyLoss(ignore_index=self.config.learning_process.ignore_index)
 
         for _ in tqdm(iterable=range(0, 10), desc="Epoch"):
             self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
@@ -143,17 +179,28 @@ class Trainer:
                 # 1. Log scalar values (scalar summary)
                 if self.framework_type == FrameworkType.Segmentation:
                     m_iou_list_eval_mean.append(
-                        self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_eval,
-                                                                       loss=loss,
-                                                                       image=image[-1, :, :, :],
-                                                                       num_classes=num_classes,
-                                                                       output=output,
-                                                                       target=target))
+                        self.metric_logger.calculate_seg_metrics_for_epoch(writer=self.writer_eval,
+                                                                           loss=loss,
+                                                                           image=image[-1, :, :, :],
+                                                                           num_classes=num_classes,
+                                                                           output=output,
+                                                                           target=target))
 
-                # Append batch prediction results
-                _, preds = torch.max(output, 1)
-                pred_list = torch.cat([pred_list, preds.view(-1).cpu()])
-                target_list = torch.cat([target_list, target.view(-1).cpu()])
+                    # Append batch prediction results
+                    _, preds = torch.max(output, 1)
+                    pred_list = torch.cat([pred_list, preds.view(-1).cpu()])
+                    target_list = torch.cat([target_list, target.view(-1).cpu()])
+                elif self.framework_type == FrameworkType.Classification:
+                    correct, total = self.metric_logger.calculate_classification_metrics_for_epoch(
+                        writer=self.writer_train,
+                        loss=loss,
+                        outputs=output,
+                        labels=target,
+                        image=image[-1, :, :, :],
+                        is_train=True
+                    )
+                    correct += correct
+                    total += total
 
         # eval mean values
         loss_list = np.array(loss_list, dtype=np.float32)
@@ -171,21 +218,34 @@ class Trainer:
                         lr_scheduler, device, criterion):
 
         model.train()
-
+        correct = 0
+        total = 0
         for input_image, target in tqdm(data_loader, desc="Train"):
             image = input_image
             image, target = image.to(device), target.to(device)
             output = model(image)
-            output = output['out']
+            output = output
+            if self.framework_type == FrameworkType.Segmentation:
+                output = output['out']
 
             loss = criterion(output, target.long())
 
             if self.framework_type == FrameworkType.Segmentation:
-                self.metric_logger.calculate_metrics_for_epoch(writer=self.writer_train, loss=loss,
-                                                               num_classes=num_classes, output=output,
-                                                               image=image[-1, :, :, :],
-                                                               target=target, is_train=True)
-
+                self.metric_logger.calculate_seg_metrics_for_epoch(writer=self.writer_train, loss=loss,
+                                                                   num_classes=num_classes, output=output,
+                                                                   image=image[-1, :, :, :],
+                                                                   target=target, is_train=True)
+            elif self.framework_type == FrameworkType.Classification:
+                correct, total = self.metric_logger.calculate_classification_metrics_for_epoch(
+                    writer=self.writer_train,
+                    loss=loss,
+                    outputs=output,
+                    labels=target,
+                    image=input_image[-1, :, :, :],
+                    is_train=True
+                )
+                correct += correct
+                total += total
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -211,7 +271,7 @@ if __name__ == "__main__":
     cfg = compose(config_name="config")
     print(OmegaConf.to_yaml(cfg))
 
-    trainer = Trainer(cfg=cfg, framework_type=FrameworkType.Segmentation)
+    trainer = Trainer(cfg=cfg, framework_type=FrameworkType.Classification)
 
     trainer.set_writer(writer_train=writer1,
                        writer_eval=writer2,
