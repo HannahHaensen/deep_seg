@@ -19,6 +19,7 @@ class TensorboardLogger:
         self.global_step = 1
 
     def set_global_step(self):
+        """increase step for logging"""
         self.global_step += 1
 
     def log_scalar(self, tag, value):
@@ -32,6 +33,13 @@ class TensorboardLogger:
         self.writer.flush()
 
     def log_confusion_matrix(self, tag, conf_mat, labels):
+        """
+        CM for tensorboard
+        :param tag:
+        :param conf_mat:
+        :param labels: TODO print labels instead of class index
+        :return:
+        """
         cmap = plt.get_cmap('Blues')
 
         fig = plt.figure()
@@ -41,7 +49,13 @@ class TensorboardLogger:
         self.writer.flush()
 
     def log_image(self, tag, value):
-
+        """
+        log image to tensorboard
+        :param tag:
+        :param value: image or tensor of image
+        :return:
+        """
+        # images in dataset are normalized --> change
         img = value.numpy().transpose((1, 2, 0))
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
