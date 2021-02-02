@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Union, Optional, Callable, Tuple, Any
 
 import numpy as np
+import torch
 from PIL import Image
 from omegaconf import DictConfig
 
@@ -43,16 +44,13 @@ class SimpsonsDataset(BasicDataset):
         self.samples = samples
         self.targets = [s[1] for s in samples]
 
-        resize = transforms.Resize((255, 255))
-        to_tensor = transforms.ToTensor()
-        normalise = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
+        resize = transforms.Resize((16, 16))
+        self._normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                               std=[0.229, 0.224, 0.225])
         horizontal_flip = transforms.RandomHorizontalFlip(p=0.3)
         # random_crop = transforms.RandomCrop(90)
         self.transforms = transforms.Compose([resize,
-                                         horizontal_flip,
-                                          to_tensor,
-                                          normalise])
+                                              horizontal_flip])
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         """
@@ -63,11 +61,15 @@ class SimpsonsDataset(BasicDataset):
         """
         path, target = self.samples[index]
         img = Image.open(path).convert('RGB')
-        # img = np.array(img)
-        if self.transforms is not None:
-            sample = self.transforms(img)
+        img = np.array(img)
+        img = torch.from_numpy(img.transpose([2, 0, 1]))
+        img = self._normalize(img.float() / 255.0)
+        img = self.transforms(img)
 
-        return sample, target
+        return img, target
 
     def __len__(self) -> int:
         return len(self.samples)
+
+    def get_classes(self):
+        return

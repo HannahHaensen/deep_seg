@@ -42,8 +42,13 @@ class TensorboardLogger:
 
     def log_image(self, tag, value):
 
+        img = value.numpy().transpose((1, 2, 0))
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        img = std * img + mean
+        img = torch.from_numpy(img.transpose([2, 0, 1]))
         # self.writer.add_image(tag, img, self.global_step)
-        self.writer.add_image(tag, value, self.global_step)
+        self.writer.add_image(tag, img, self.global_step)
         # y = torch.squeeze(value, 1)
         # self.writer.add_image(tag=tag, img_tensor=y)
 

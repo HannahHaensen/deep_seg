@@ -143,7 +143,7 @@ class MetricCalculator:
         writer.log_scalars(info)
         writer.set_global_step()
 
-        return correct, total
+        return correct, total, predictions
 
 
     def calculate_seg_metrics_for_epoch(self, writer: TensorboardLogger,

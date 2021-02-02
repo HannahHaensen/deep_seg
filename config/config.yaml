@@ -1,5 +1,15 @@
 dataset:
-  data_path:
-  image_sub_path:
-  mask_sub_path:
-  number_of_classes:
+    root_path: '/Users/hannahschieber/GitHub/deep_seg/data/Simpsons/simpsons_dataset/'
+    # root_path: '/Users/hannahschieber/GitHub/deep_seg/data/VOC2012'
+    image_sub_path: 'JPEGImages'
+    mask_sub_path: 'SegmentationClass'
+    number_of_classes: 21
+
+learning_process:
+    learning_rate: 0.001
+    weight_decay: 0
+    num_workers: 0
+    ignore_index: None
+
+logging:
+    output_dir ''

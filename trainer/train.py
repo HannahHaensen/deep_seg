@@ -204,11 +204,13 @@ class Trainer:
 
         # eval mean values
         loss_list = np.array(loss_list, dtype=np.float32)
-        m_iou_list_eval_mean = np.array(m_iou_list_eval_mean, dtype=np.float32)
         info = {
-            '/mLoss': loss_list.mean(),
-            '/mIoU': m_iou_list_eval_mean.mean()
+            '/mLoss': loss_list.mean()
         }
+        if self.framework_type == FrameworkType.Segmentation:
+            m_iou_list_eval_mean = np.array(m_iou_list_eval_mean, dtype=np.float32)
+            info['mIoU'] = m_iou_list_eval_mean.mean()
+
         self.writer_eval_mean.log_scalars(info)
         self.metric_logger.update_matrix(pred_list.numpy(),
                                          target_list.numpy(), "eval/CM", self.writer_eval_mean)
@@ -220,6 +222,9 @@ class Trainer:
         model.train()
         correct = 0
         total = 0
+        pred_list = torch.zeros(0, dtype=torch.long, device=device)
+        target_list = torch.zeros(0, dtype=torch.long, device=device)
+
         for input_image, target in tqdm(data_loader, desc="Train"):
             image = input_image
             image, target = image.to(device), target.to(device)
@@ -236,7 +241,7 @@ class Trainer:
                                                                    image=image[-1, :, :, :],
                                                                    target=target, is_train=True)
             elif self.framework_type == FrameworkType.Classification:
-                correct, total = self.metric_logger.calculate_classification_metrics_for_epoch(
+                correct, total, preds = self.metric_logger.calculate_classification_metrics_for_epoch(
                     writer=self.writer_train,
                     loss=loss,
                     outputs=output,
@@ -244,6 +249,12 @@ class Trainer:
                     image=input_image[-1, :, :, :],
                     is_train=True
                 )
+                y_test_non_category = [np.argmax(t) for t in y_test]
+                y_predict_non_category = [np.argmax(t) for t in y_predict]
+
+                from sklearn.metrics import confusion_matrix
+                conf_mat = confusion_matrix(y_test_non_category, y_predict_non_category)
+
                 correct += correct
                 total += total
             optimizer.zero_grad()
@@ -251,6 +262,7 @@ class Trainer:
             optimizer.step()
 
             lr_scheduler.step()
+        y_pred_list = [a.squeeze().tolist() for a in y_pred_list]
 
 
 if __name__ == "__main__":
