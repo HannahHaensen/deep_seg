@@ -6,12 +6,18 @@ from torch.utils.data import Dataset
 
 
 class DataSplit(Enum):
+    """
+    Split Definition
+    """
     Train = 1
     Test = 2
     Eval = 3
 
+
 class BasicDataset(Dataset):
-    """Basic Dataset"""
+    """Basic Dataset
+    Basic Dataset all others should extend it
+    """
 
     def __init__(
             self,
@@ -19,7 +25,6 @@ class BasicDataset(Dataset):
             split: DataSplit = DataSplit.Train,
             transforms: Optional[Callable] = None,
     ) -> None:
-        # super(BasicDataset, self).__init__(root=root, split=split, transforms=transforms)
         self.cfg = cfg
         self.split = split
         self.transforms = transforms
