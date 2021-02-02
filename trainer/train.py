@@ -45,11 +45,26 @@ class Trainer:
     def set_writer(self, writer_train: TensorboardLogger,
                    writer_eval: TensorboardLogger,
                    writer_eval_mean: TensorboardLogger) -> None:
+        """
+        tensorboard logger for train, eval and meanEval
+        :param writer_train:
+        :param writer_eval:
+        :param writer_eval_mean:
+        :return:
+        """
         self.writer_train = writer_train
         self.writer_eval = writer_eval
         self.writer_eval_mean = writer_eval_mean
 
     def save_checkpoint(self, model, optimizer, save_path, epoch):
+        """
+        save model to .pth-file
+        :param model: model
+        :param optimizer:
+        :param save_path:
+        :param epoch: saved epoch
+        :return: None
+        """
         torch.save({
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
@@ -57,6 +72,13 @@ class Trainer:
         }, save_path)
 
     def load_checkpoint(self, model, optimizer, load_path):
+        """
+        load saved model
+        :param model:
+        :param optimizer:
+        :param load_path:
+        :return:
+        """
         checkpoint = torch.load(load_path)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -65,8 +87,16 @@ class Trainer:
         return model, optimizer, epoch
 
     def loading_data_set(self):
+        """
+        framework can be used for classification or segmentation
+
+        future: obejct detection
+        :return:
+        """
         # Data loading code
         if self.framework_type == FrameworkType.Classification:
+            # TODO
+            #  change dataset in outer method
             dataset = SimpsonsDataset(cfg=self.config)
             batch_size = 16
             validation_split = .2
@@ -91,6 +121,8 @@ class Trainer:
             data_loader_eval = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                                            sampler=valid_sampler)
         else:
+            # TODO
+            #  change dataset in outer method
             train_dataset = VOCSegmentation(split=DataSplit.Train, cfg=self.config)
             eval_dataset = VOCSegmentation(split=DataSplit.Eval, cfg=self.config)
             data_loader = torch.utils.data.DataLoader(
@@ -108,6 +140,10 @@ class Trainer:
         return data_loader, data_loader_eval
 
     def main(self):
+        """
+        main running method
+        :return:
+        """
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print('Using device:', device)
         print()
@@ -117,6 +153,7 @@ class Trainer:
         print("Creating model")
         model = None
         if self.framework_type == FrameworkType.Segmentation:
+            # using deeplab atm for sem seg, also individual models can be used
             model = torchvision.models.segmentation.deeplabv3_resnet50(
                 pretrained=True,
                 num_classes=self.config.dataset.number_of_classes)
@@ -140,6 +177,7 @@ class Trainer:
         # if self.config.learning_process.ignore_index != 'None':
             # criterion = torch.nn.CrossEntropyLoss(ignore_index=self.config.learning_process.ignore_index)
 
+        # TODO make epochs value in hydra config
         for _ in tqdm(iterable=range(0, 10), desc="Epoch"):
             self.train_one_epoch(model=model, optimizer=optimizer, data_loader=data_loader,
                                  num_classes=self.config.dataset.number_of_classes, device=device,
@@ -156,7 +194,15 @@ class Trainer:
         print('Training time {}'.format(total_time_str))
 
     def evaluate(self, model, data_loader, device, num_classes, criterion):
-
+        """
+        eval model
+        :param model: model
+        :param data_loader: eval data loader
+        :param device: either cuda or cpu
+        :param num_classes: number of classes in dataset
+        :param criterion: Loss --> TODO add default CE
+        :return:
+        """
         model.eval()
 
         # Initialize the prediction and label lists(tensors)
@@ -218,7 +264,17 @@ class Trainer:
 
     def train_one_epoch(self, model, optimizer, data_loader, num_classes,
                         lr_scheduler, device, criterion):
-
+        """
+        train one epoch
+        :param model: model which is trained
+        :param optimizer: optimizer --> ADAM or SGD
+        :param data_loader: Train loader
+        :param num_classes:
+        :param lr_scheduler: e.g. Poly or Linear or Exp
+        :param device: cuda or cpu
+        :param criterion:
+        :return:
+        """
         model.train()
         correct = 0
         total = 0
@@ -275,6 +331,7 @@ if __name__ == "__main__":
 
     url = tb.launch()
 
+    # logger for train eval and mean
     writer1 = TensorboardLogger(log_dir='../runs/training_logger')
     writer2 = TensorboardLogger(log_dir='../runs/eval_logger')
     writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger')
