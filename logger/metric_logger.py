@@ -86,6 +86,13 @@ class MetricCalculator:
         return mean_intersection_over_union
 
     def iou(self, pred, target, n_classes=21):
+        """
+        calculate interseciton over union
+        :param pred:
+        :param target:
+        :param n_classes:
+        :return:
+        """
         i_o_u = []
         pred = torch.nn.functional.softmax(pred, dim=1)
         pred = torch.argmax(pred, dim=1).squeeze(1)
@@ -106,6 +113,13 @@ class MetricCalculator:
         return np.array(i_o_u)
 
     def calculate_accuracy_per_class(self, outputs, targets, num_classes: int = 21):
+        """
+        TODO
+        :param outputs:
+        :param targets:
+        :param num_classes:
+        :return:
+        """
         acc = []
         _, preds = torch.max(outputs.data, 1)
         for c in range(num_classes):
@@ -113,6 +127,12 @@ class MetricCalculator:
         return acc
 
     def calculate_accuracy(self, output, target):
+        """
+        caclulate overall accuracy for one step or epoch
+        :param output:
+        :param target:
+        :return:
+        """
         _, argmax = torch.max(output, 1)
         accuracy = (target == argmax.squeeze()).float().mean()
         return accuracy
@@ -123,6 +143,16 @@ class MetricCalculator:
                                         labels,
                                         image,
                                         is_train: bool = False) -> [float]:
+        """
+        calculates metrics for classification task
+        :param writer:
+        :param loss:
+        :param outputs:
+        :param labels:
+        :param image:
+        :param is_train:
+        :return:
+        """
         _, predictions = torch.max(outputs, dim=1)
         correct = torch.sum(predictions == labels).item()
         total = labels.size(0)
@@ -151,6 +181,18 @@ class MetricCalculator:
                                         image,
                                         is_train: bool = False,
                                         num_classes: int = 21) -> [float]:
+        """
+        calculates the metrics for a semantic segmentation task
+        Loss, mIoU, IoU per class, generall ACC
+        :param writer:
+        :param loss:
+        :param output:
+        :param target:
+        :param image:
+        :param is_train: if is train log best image
+        :param num_classes:
+        :return:
+        """
         m_io_u_per_class = self.iou(output, target, num_classes)
         m_i_o_u = np.array(m_io_u_per_class).mean()
 
@@ -188,6 +230,11 @@ class MetricCalculator:
         writer.log_image(tag + '/best_image', image)
 
     def create_rgb_target(self, target):
+        """
+        conversion from normalized tensor
+        :param target:
+        :return:
+        """
         target = target[-1, :, :]
         h, w = target.shape
         rgb_target = np.random.randint(255, size=(h, w, 3), dtype=np.uint8)
@@ -198,6 +245,11 @@ class MetricCalculator:
         return rgb_target
 
     def intersection_over_union(boxA, boxB):
+        """
+        TODO for object detection
+        :param boxB:
+        :return:
+        """
         xA = max(boxA[0], boxB[0])
         yA = max(boxA[1], boxB[1])
         xB = min(boxA[2], boxB[2])
@@ -209,6 +261,9 @@ class MetricCalculator:
         return (interArea / float(boxAArea + boxBArea - interArea))
 
     def convert_bbox(old_size, new_size, x_min, y_min, x_max, y_max):
+        """
+        TODO for object detection
+        """
         x_min_new = floor((x_min / old_size[0]) * new_size[0])
         y_min_new = floor((y_min / old_size[1]) * new_size[1])
         x_max_new = ceil((x_max / old_size[0]) * new_size[0])
