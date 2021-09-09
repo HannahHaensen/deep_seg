@@ -1,5 +1,8 @@
 # PyTorch Framework
 
+## Hydra
+hydra is used to set the configuratable parameters
+
 @Misc{Yadan2019Hydra,
   author =       {Omry Yadan},
   title =        {Hydra - A framework for elegantly configuring complex applications},
@@ -7,6 +10,15 @@
   year =         {2019},
   url =          {https://github.com/facebookresearch/hydra}
 }
+
+## mlflow
+mlflow is used to have an overlook on all experiements
+- https://mlflow.org
+
+## tensorboard 
+tensorboard is used to show intermediate training results
+
+## Etc.
 
 ### helper function to show an image
 ### (used in the `plot_classes_preds` function below)
