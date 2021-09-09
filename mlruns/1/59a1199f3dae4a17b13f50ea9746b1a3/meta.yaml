@@ -1,0 +1,15 @@
+artifact_uri: ./mlruns/1/59a1199f3dae4a17b13f50ea9746b1a3/artifacts
+end_time: 1631193869568
+entry_point_name: ''
+experiment_id: '1'
+lifecycle_stage: deleted
+name: ''
+run_id: 59a1199f3dae4a17b13f50ea9746b1a3
+run_uuid: 59a1199f3dae4a17b13f50ea9746b1a3
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1631193869441
+status: 3
+tags: []
+user_id: hannahschieber

@@ -8,7 +8,7 @@ import torch
 from sklearn.metrics import confusion_matrix
 
 from dataset.voc_seg_dataset import get_color_for_classes
-from logger.tensorboard_logger import TensorboardLogger
+from logger.training_logger import TrainingLogger
 
 
 class MetricCalculator:
@@ -38,7 +38,7 @@ class MetricCalculator:
         self.color_palette = get_color_for_classes()
 
     def update_matrix(self, ground_truth: Any, prediction: Any,
-                      tag: str, writer: TensorboardLogger):
+                      tag: str, writer: TrainingLogger):
         """Updates overall confusion matrix statistics.
         If you are working with 2D data, just .flatten() it before running this
         function.
@@ -137,12 +137,12 @@ class MetricCalculator:
         accuracy = (target == argmax.squeeze()).float().mean()
         return accuracy
 
-    def calculate_classification_metrics_for_epoch(self, writer: TensorboardLogger,
-                                        loss: float,
-                                        outputs,
-                                        labels,
-                                        image,
-                                        is_train: bool = False) -> [float]:
+    def calculate_classification_metrics_for_epoch(self, writer: TrainingLogger,
+                                                   loss: float,
+                                                   outputs,
+                                                   labels,
+                                                   image,
+                                                   is_train: bool = False) -> [float]:
         """
         calculates metrics for classification task
         :param writer:
@@ -164,11 +164,11 @@ class MetricCalculator:
         if is_train:
             if self.best_prediction_train < acc:
                 self.best_prediction_train = acc
-                writer.log_image('train/best_prediction', image)
+                # writer.log_image('train/best_prediction', image)
         else:
             if self.best_prediction_eval < acc:
                 self.best_prediction_eval = acc
-                writer.log_image('eval/best_prediction', image)
+                # writer.log_image('eval/best_prediction', image)
 
         writer.log_scalars(info)
         writer.set_global_step()
@@ -176,7 +176,7 @@ class MetricCalculator:
         return correct, total, predictions
 
 
-    def calculate_seg_metrics_for_epoch(self, writer: TensorboardLogger,
+    def calculate_seg_metrics_for_epoch(self, writer: TrainingLogger,
                                         loss: float, output, target,
                                         image,
                                         is_train: bool = False,
@@ -222,12 +222,12 @@ class MetricCalculator:
 
         return m_io_u_per_class
 
-    def log_images_to_board(self, image, preds, target, writer: TensorboardLogger, tag: str = ''):
+    def log_images_to_board(self, image, preds, target, writer: TrainingLogger, tag: str = ''):
         rgb_target = self.create_rgb_target(target)
         rgb_pred = self.create_rgb_target(preds)
-        writer.log_image(tag + '/best_prediction', rgb_pred)
-        writer.log_image(tag + '/best_target', rgb_target)
-        writer.log_image(tag + '/best_image', image)
+        # writer.log_image(tag + '/best_prediction', rgb_pred)
+        # writer.log_image(tag + '/best_target', rgb_target)
+        # writer.log_image(tag + '/best_image', image)
 
     def create_rgb_target(self, target):
         """

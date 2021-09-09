@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from enum import Enum
 
+import mlflow
 import numpy as np
 import torch
 import torchvision
@@ -16,7 +17,7 @@ from dataset.simpsons_dataset import SimpsonsDataset
 from dataset.voc_seg_dataset import VOCSegmentation, get_classes
 from dataset.basic_dataset import DataSplit
 from logger.metric_logger import MetricCalculator
-from logger.tensorboard_logger import TensorboardLogger
+from logger.training_logger import TrainingLogger
 
 from tqdm import tqdm
 
@@ -42,9 +43,9 @@ class Trainer:
         self.writer_eval = None
         self.writer_eval_mean = None
 
-    def set_writer(self, writer_train: TensorboardLogger,
-                   writer_eval: TensorboardLogger,
-                   writer_eval_mean: TensorboardLogger) -> None:
+    def set_writer(self, writer_train: TrainingLogger,
+                   writer_eval: TrainingLogger,
+                   writer_eval_mean: TrainingLogger) -> None:
         """
         tensorboard logger for train, eval and meanEval
         :param writer_train:
@@ -174,8 +175,8 @@ class Trainer:
         start_time = time.time()
 
         criterion = torch.nn.CrossEntropyLoss()
-        # if self.config.learning_process.ignore_index != 'None':
-            # criterion = torch.nn.CrossEntropyLoss(ignore_index=self.config.learning_process.ignore_index)
+        if self.config.learning_process.ignore_index != 'None':
+            criterion = torch.nn.CrossEntropyLoss(ignore_index=self.config.learning_process.ignore_index)
 
         # TODO make epochs value in hydra config
         for _ in tqdm(iterable=range(0, 10), desc="Epoch"):
@@ -322,6 +323,7 @@ class Trainer:
 
 
 if __name__ == "__main__":
+
     now = datetime.now()
 
     shutil.rmtree('../runs/', ignore_errors=True)
@@ -332,15 +334,19 @@ if __name__ == "__main__":
     url = tb.launch()
 
     # logger for train eval and mean
-    writer1 = TensorboardLogger(log_dir='../runs/training_logger')
-    writer2 = TensorboardLogger(log_dir='../runs/eval_logger')
-    writer3 = TensorboardLogger(log_dir='../runs/mean_eval_logger')
+    writer1 = TrainingLogger(log_dir='../runs/training_logger')
+    writer2 = TrainingLogger(log_dir='../runs/eval_logger')
+    writer3 = TrainingLogger(log_dir='../runs/mean_eval_logger')
 
     initialize(config_path="../config/", job_name="test_app")
     cfg = compose(config_name="config")
     print(OmegaConf.to_yaml(cfg))
+    with mlflow.start_run():
+        # Log our parameters into mlflow
+        for key, value in cfg.items():
+            mlflow.log_param(key, value)
 
-    trainer = Trainer(cfg=cfg, framework_type=FrameworkType.Classification)
+    trainer = Trainer(cfg=cfg, framework_type=FrameworkType.Segmentation)
 
     trainer.set_writer(writer_train=writer1,
                        writer_eval=writer2,
