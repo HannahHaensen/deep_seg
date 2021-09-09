@@ -1,1 +1,0 @@
-{'root_path': '/Users/hannahschieber/GitHub/deep_seg/data/VOC2012', 'image_sub_path': 'JPEGImages', 'mask_sub_path': 'SegmentationClass', 'number_of_classes': 20}
