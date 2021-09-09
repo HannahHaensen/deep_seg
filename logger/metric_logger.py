@@ -225,9 +225,9 @@ class MetricCalculator:
     def log_images_to_board(self, image, preds, target, writer: TrainingLogger, tag: str = ''):
         rgb_target = self.create_rgb_target(target)
         rgb_pred = self.create_rgb_target(preds)
-        # writer.log_image(tag + '/best_prediction', rgb_pred)
-        # writer.log_image(tag + '/best_target', rgb_target)
-        # writer.log_image(tag + '/best_image', image)
+        writer.log_image(tag + '/best_prediction', rgb_pred)
+        writer.log_image(tag + '/best_target', rgb_target)
+        writer.log_image(tag + '/best_image', image.numpy())
 
     def create_rgb_target(self, target):
         """

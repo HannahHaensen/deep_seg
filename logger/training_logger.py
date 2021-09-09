@@ -36,8 +36,8 @@ class TrainingLogger:
     def log_scalars(self, info: dict):
         for tag, value in info.items():
             self.writer.add_scalar(tag, value, self.global_step)
-            print(tag, value)
-            # mlflow.log_metric(tag, value)
+            print(tag, value.item())
+            mlflow.log_metric(tag, value.item())
         self.writer.flush()
 
     def log_confusion_matrix(self, tag, conf_mat, labels):
@@ -64,12 +64,11 @@ class TrainingLogger:
         :return:
         """
         # images in dataset are normalized --> change
-        img = value.numpy().transpose((1, 2, 0))
+        img = value.transpose(1, 2, 0)
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
         img = std * img + mean
         img = torch.from_numpy(img.transpose([2, 0, 1]))
-        # self.writer.add_image(tag, img, self.global_step)
         self.writer.add_image(tag, img, self.global_step)
         # y = torch.squeeze(value, 1)
         # self.writer.add_image(tag=tag, img_tensor=y)

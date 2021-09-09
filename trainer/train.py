@@ -291,35 +291,22 @@ class Trainer:
                 output = output['out']
 
             loss = criterion(output, target.long())
-
+            if self.framework_type == FrameworkType.Classification:
+                # TODO simple classification not tested
+                raise NotImplementedError
             if self.framework_type == FrameworkType.Segmentation:
                 self.metric_logger.calculate_seg_metrics_for_epoch(writer=self.writer_train, loss=loss,
                                                                    num_classes=num_classes, output=output,
                                                                    image=image[-1, :, :, :],
                                                                    target=target, is_train=True)
-            elif self.framework_type == FrameworkType.Classification:
-                correct, total, preds = self.metric_logger.calculate_classification_metrics_for_epoch(
-                    writer=self.writer_train,
-                    loss=loss,
-                    outputs=output,
-                    labels=target,
-                    image=input_image[-1, :, :, :],
-                    is_train=True
-                )
-                y_test_non_category = [np.argmax(t) for t in y_test]
-                y_predict_non_category = [np.argmax(t) for t in y_predict]
-
-                from sklearn.metrics import confusion_matrix
-                conf_mat = confusion_matrix(y_test_non_category, y_predict_non_category)
-
-                correct += correct
-                total += total
+            elif self.framework_type == FrameworkType.ObjectDetection:
+                # TODO
+                raise NotImplementedError
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             lr_scheduler.step()
-        y_pred_list = [a.squeeze().tolist() for a in y_pred_list]
 
 
 if __name__ == "__main__":
