@@ -85,9 +85,9 @@ class MetricCalculator:
         writer.log_scalar('mIoU', mean_intersection_over_union)
         return mean_intersection_over_union
 
-    def iou(self, pred, target, n_classes=21):
+    def iou_seg(self, pred, target, n_classes=21):
         """
-        calculate interseciton over union
+        calculate interseciton over union for semantic segmentation
         :param pred:
         :param target:
         :param n_classes:
@@ -193,7 +193,7 @@ class MetricCalculator:
         :param num_classes:
         :return:
         """
-        m_io_u_per_class = self.iou(output, target, num_classes)
+        m_io_u_per_class = self.iou_seg(output, target, num_classes)
         m_i_o_u = np.array(m_io_u_per_class).mean()
 
         # m_acc_per_class = self.calculate_accuracy_per_class(outputs=output, targets=target, num_classes=num_classes)
@@ -222,6 +222,39 @@ class MetricCalculator:
 
         return m_io_u_per_class
 
+    def calculate_obj_dec_metrics_for_epoch(self, writer: TrainingLogger,
+                                        loss: float, output, target,
+                                        image,
+                                        is_train: bool = False,
+                                        num_classes: int = 21) -> [float]:
+        m_io_u_per_class = self.iou_seg(output, target, num_classes)
+        m_i_o_u = np.array(m_io_u_per_class).mean()
+
+        # m_acc_per_class = self.calculate_accuracy_per_class(outputs=output, targets=target, num_classes=num_classes)
+        info = {
+            'overall/loss': loss,
+            'overall/mIoU': m_i_o_u,
+            # 'overall/accuracy': self.calculate_accuracy(output, target)  # Compute accuracy
+        }
+        # Using enumerate()
+        for i in range(num_classes):
+            info[self.display_labels[i] + '/IoU'] = m_io_u_per_class[i]
+            # info[self.display_labels[i] + '/Accuracy'] = m_acc_per_class[i]
+
+        _, preds = torch.max(output.data, 1)
+        if is_train:
+            if self.best_prediction_train < m_i_o_u:
+                self.best_prediction_train = m_i_o_u
+                self.log_images_to_board(image, preds, target, writer, 'train')
+        else:
+            if self.best_prediction_eval < m_i_o_u:
+                self.best_prediction_eval = m_i_o_u
+                self.log_images_to_board(image, preds, target, writer, 'eval')
+        writer.log_scalars(info)
+        writer.set_global_step()
+
+        return m_io_u_per_class
+
     def log_images_to_board(self, image, preds, target, writer: TrainingLogger, tag: str = ''):
         rgb_target = self.create_rgb_target(target)
         rgb_pred = self.create_rgb_target(preds)
@@ -244,7 +277,7 @@ class MetricCalculator:
         rgb_target = np.transpose(rgb_target, (2, 0, 1))
         return rgb_target
 
-    def intersection_over_union(boxA, boxB):
+    def iou_obj_dec(self, boxA, boxB):
         """
         TODO for object detection
         :param boxB:
@@ -260,7 +293,7 @@ class MetricCalculator:
         boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
         return (interArea / float(boxAArea + boxBArea - interArea))
 
-    def convert_bbox(old_size, new_size, x_min, y_min, x_max, y_max):
+    def convert_bbox(self, old_size, new_size, x_min, y_min, x_max, y_max):
         """
         TODO for object detection
         """

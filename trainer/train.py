@@ -12,6 +12,7 @@ from hydra.experimental import initialize, compose
 from omegaconf import DictConfig, OmegaConf
 from sklearn.model_selection import train_test_split
 from torch.utils.data import SubsetRandomSampler
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 from dataset.simpsons_dataset import SimpsonsDataset
 from dataset.voc_seg_dataset import VOCSegmentation, get_classes
@@ -160,6 +161,16 @@ class Trainer:
                 num_classes=self.config.dataset.number_of_classes)
         elif self.framework_type == FrameworkType.Classification:
             model = torchvision.models.resnet50(pretrained=True)
+        elif self.framework_type == FrameworkType.ObjectDetection:
+            model = torchvision.models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
+
+            # replace the classifier with a new one, that has
+            # num_classes which is user-defined
+            num_classes = self.config.dataset.number_of_classes  # 1 class (person) + background
+            # get number of input features for the classifier
+            in_features = model.roi_heads.box_predictor.cls_score.in_features
+            # replace the pre-trained head with a new one
+            model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
         else:
             NotImplementedError
         model.to(device)
@@ -301,7 +312,12 @@ class Trainer:
                                                                    target=target, is_train=True)
             elif self.framework_type == FrameworkType.ObjectDetection:
                 # TODO
-                raise NotImplementedError
+                # load a model pre-trained pre-trained on COCO
+                self.metric_logger.calculate_obj_dec_metrics_for_epoch(writer=self.writer_train, loss=loss,
+                                                                   num_classes=num_classes, output=output,
+                                                                   image=image[-1, :, :, :],
+                                                                   target=target, is_train=True)
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
